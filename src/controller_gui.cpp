@@ -98,6 +98,7 @@ Gui::Gui(shared_ptr<GlWindow> w, RootObject* s)
     _window->setAsCurrentContext();
     initImGui(_width, _height);
     initImWidgets();
+    loadIcon();
     _window->releaseContext();
 
     registerAttributes();
@@ -115,6 +116,26 @@ Gui::~Gui()
     glDeleteBuffers(1, &_imGuiVboHandle);
     glDeleteBuffers(1, &_imGuiElementsHandle);
     glDeleteVertexArrays(1, &_imGuiVaoHandle);
+}
+
+/*************/
+void Gui::loadIcon()
+{
+    auto imagePath = string(DATADIR);
+    string path{"splash-icon-512.png"};
+
+    auto image = make_shared<Image>(_scene);
+    image->setName("splash_icon");
+    if (!image->read(imagePath + path))
+    {
+        Log::get() << Log::WARNING << "Gui::" << __FUNCTION__ << " - Could not find Splash icon, aborting image loading" << Log::endl;
+        return;
+    }
+
+    _splashLogo = make_shared<Texture_Image>(_scene);
+    _splashLogo->linkTo(image);
+    _splashLogo->update();
+    _splashLogo->flushPbo();
 }
 
 /*************/
@@ -487,6 +508,33 @@ void Gui::unlinkFrom(const shared_ptr<BaseObject>& obj)
 }
 
 /*************/
+void Gui::renderSplashScreen()
+{
+    static bool isOpen{false};
+    static int splashWidth = 600, splashHeight = 288;
+    ImGui::SetNextWindowPos(ImVec2((_width - splashWidth) / 2, (_height - splashHeight) / 2));
+    ImGui::Begin("About Splash", &isOpen, ImVec2(splashWidth, splashHeight), 0.97f, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
+    if (_splashLogo)
+    {
+        ImGui::Columns(2, nullptr, false);
+        ImGui::Image((void*)(intptr_t)_splashLogo->getTexId(), ImVec2(256, 256));
+        ImGui::NextColumn();
+        ImGui::Dummy(ImVec2(256, 80));
+        ImGui::Text("Splash, a modular video-mapping engine");
+        ImGui::Text((string("Version ") + string(PACKAGE_VERSION)).c_str());
+        ImGui::Spacing();
+        ImGui::Text("Developed at the Société des Arts Technologiques");
+        ImGui::Text("https://gitlab.com/sat-metalab/splash/wikis");
+        ImGui::Columns(1);
+
+        auto& io = ImGui::GetIO();
+        if (io.MouseClicked[0])
+            _showAbout = false;
+    }
+    ImGui::End();
+}
+
+/*************/
 void Gui::render()
 {
     if (!_isInitialized)
@@ -499,19 +547,19 @@ void Gui::render()
 #ifdef DEBUG
     GLenum error = glGetError();
 #endif
+    using namespace ImGui;
 
+    // Callback for dragndrop: load the dropped file
+    UserInput::setCallback(UserInput::State("dragndrop"), [=](const UserInput::State& state) { setGlobal("loadConfig", {state.value[0].as<string>()}); });
+
+    ImGuiIO& io = GetIO();
+    io.MouseDrawCursor = _mouseHoveringWindow;
+
+    ImGui::NewFrame();
+
+    // Panel
     if (_isVisible)
     {
-        using namespace ImGui;
-
-        // Callback for dragndrop: load the dropped file
-        UserInput::setCallback(UserInput::State("dragndrop"), [=](const UserInput::State& state) { setGlobal("loadConfig", {state.value[0].as<string>()}); });
-
-        ImGuiIO& io = GetIO();
-        io.MouseDrawCursor = _mouseHoveringWindow;
-
-        ImGui::NewFrame();
-
         ImGui::Begin("Splash Control Panel", nullptr, ImVec2(700, 900), 0.95f, _windowFlags);
         _windowFlags = ImGuiWindowFlags_NoBringToFrontOnFocus;
 
@@ -528,6 +576,10 @@ void Gui::render()
         {
             ImGui::SetWindowPos(ImVec2(_initialGuiPos[0], _initialGuiPos[1]), ImGuiSetCond_Once);
         }
+
+        // About
+        if (ImGui::Button("About Splash", ImVec2(ImGui::GetContentRegionAvailWidth(), 0)))
+            _showAbout = true;
 
         // Some global buttons
         if (ImGui::CollapsingHeader("General commands", nullptr, true, true))
@@ -726,6 +778,24 @@ void Gui::render()
         glClear(GL_COLOR_BUFFER_BIT);
     }
 
+    if (_showAbout)
+        renderSplashScreen();
+
+    // Uncomment to show styling gui!
+    // ImGuiStyle& style = ImGui::GetStyle();
+    // ImGui::ShowStyleEditor(&style);
+
+    static double time = 0.0;
+    const double currentTime = glfwGetTime();
+    io.DeltaTime = static_cast<float>(currentTime - time);
+    time = currentTime;
+
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, _fbo);
+    glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+    glClearColor(0.0, 0.0, 0.0, 0.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    ImGui::Render();
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glDisable(GL_DEPTH_TEST);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
@@ -1181,7 +1251,6 @@ void Gui::imGuiRenderDrawLists(ImDrawData* draw_data)
     for (int n = 0; n < draw_data->CmdListsCount; ++n)
     {
         const ImDrawList* cmd_list = draw_data->CmdLists[n];
-        // const ImDrawIdx* idx_buffer = &cmd_list->IdxBuffer.front();
         const ImDrawIdx* idx_buffer_offset = 0;
 
         glBindBuffer(GL_ARRAY_BUFFER, _imGuiVboHandle);
@@ -1215,7 +1284,6 @@ void Gui::imGuiRenderDrawLists(ImDrawData* draw_data)
                 glScissor((int)pcmd->ClipRect.x, (int)(height - pcmd->ClipRect.w), (int)(pcmd->ClipRect.z - pcmd->ClipRect.x), (int)(pcmd->ClipRect.w - pcmd->ClipRect.y));
                 glDrawElements(GL_TRIANGLES, (GLsizei)pcmd->ElemCount, sizeof(ImDrawIdx) == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT, idx_buffer_offset);
             }
-
             idx_buffer_offset += pcmd->ElemCount;
         }
     }
