@@ -531,6 +531,7 @@ void Scene::updateInputs()
 /*************/
 void Scene::textureUploadRun()
 {
+    _textureUploadWindow->setAsCurrentContext();
     while (_isRunning)
     {
         if (!_started)
@@ -547,10 +548,11 @@ void Scene::textureUploadRun()
 
         unique_lock<Spinlock> lockTexture(_textureMutex);
 
-        _textureUploadWindow->setAsCurrentContext();
-        glFlush();
-        glWaitSync(_cameraDrawnFence, 0, GL_TIMEOUT_IGNORED);
-        glDeleteSync(_cameraDrawnFence);
+        if (glIsSync(_cameraDrawnFence) == GL_TRUE)
+        {
+            glWaitSync(_cameraDrawnFence, 0, GL_TIMEOUT_IGNORED);
+            glDeleteSync(_cameraDrawnFence);
+        }
 
         Timer::get() << "textureUpload";
 
@@ -577,9 +579,9 @@ void Scene::textureUploadRun()
                 texImage->flushPbo();
         }
 
-        _textureUploadWindow->releaseContext();
         Timer::get() >> "textureUpload";
     }
+    _textureUploadWindow->releaseContext();
 }
 
 /*************/

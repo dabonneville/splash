@@ -114,7 +114,7 @@
          "address" : "localhost",
          "display" : 0,
          "name" : "first",
-         "spawn" : 1,
+         "spawn" : 0,
          "swapInterval" : 1
       }
    ],
